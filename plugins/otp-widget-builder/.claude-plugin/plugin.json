@@ -1,0 +1,12 @@
+{
+  "name": "otp-widget-builder",
+  "version": "1.0.0",
+  "description": "Interactively build or customize a production-ready OTP verification widget on your own APIs, in any frontend stack, with branding, tests and docs.",
+  "author": {
+    "name": "Saurabh186",
+    "url": "https://github.com/Saurabh186"
+  },
+  "homepage": "https://github.com/Saurabh186/otp-widget-builder",
+  "repository": "https://github.com/Saurabh186/otp-widget-builder",
+  "keywords": ["otp", "verification", "widget", "sms", "authentication", "skill"]
+}

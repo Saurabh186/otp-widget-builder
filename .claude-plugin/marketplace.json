@@ -1,0 +1,14 @@
+{
+  "name": "otp-widget-builder",
+  "description": "A Claude skill that helps you build or customize your own OTP verification widget.",
+  "owner": {
+    "name": "Saurabh186"
+  },
+  "plugins": [
+    {
+      "name": "otp-widget-builder",
+      "source": "./plugins/otp-widget-builder",
+      "description": "Interactively build or customize a production-ready OTP verification widget on your own APIs, in any frontend stack, with branding, tests and docs."
+    }
+  ]
+}
