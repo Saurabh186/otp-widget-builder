@@ -5,7 +5,7 @@ description: Builds or customizes an OTP verification widget on the user's own A
 
 # OTP Widget Builder
 
-Interactively create a new, independent OTP verification widget, or customize an existing one, using Walkover's OTP-widget-web repository as the technical reference for OTP behaviour. The reference repo is documented in `references/`; generated projects never depend on it at runtime.
+Interactively create a new, independent OTP verification widget, or customize an existing one, using the `production-js` branch of Walkover's OTP-widget-web repository (the vanilla JavaScript SDK in `core-js/`) as the technical reference for OTP behaviour. The reference is documented in `references/`; generated projects never depend on it at runtime.
 
 ## Reference files: when to read them
 
@@ -40,7 +40,7 @@ Follow the phases in order. Keep a visible checklist of phases for the user.
 ### Phase 1: Understand the request and the reference
 
 1. Read `references/repository-architecture.md` and `references/otp-flow.md`.
-2. If the user is customizing an existing widget, get its code (path, repo URL or ZIP) and inspect it now (framework, build, config flow, styles, tests). If customizing the reference repo itself and network access exists, clone `https://github.com/Walkover-Web-Solution/OTP-widget-web.git` and confirm the documented commit (`7e3c798`) or note differences.
+2. If the user is customizing an existing widget, get its code (path, repo URL or ZIP) and inspect it now (framework, build, config flow, styles, tests). If customizing the reference itself and network access exists, clone it with `git clone --branch production-js https://github.com/Walkover-Web-Solution/OTP-widget-web.git`, confirm the documented commit (`724c584`) or note differences, and work in `core-js/`. Use the `master` branch (Angular) only if the user is customizing that code specifically.
 3. If a repository the user points to is private or unreachable, ask for access or a ZIP. Do not guess its contents.
 
 ### Phase 2: Gather requirements interactively

@@ -1,6 +1,6 @@
 # OTP Lifecycle
 
-Part A describes the flow exactly as the reference repository implements it (commit `7e3c798`). Part B is the generic, framework-neutral state machine to implement in new widgets. Part C lists the behaviour decisions you must confirm with the user.
+Part A describes the flow exactly as the reference implements it on the `production-js` branch (`core-js/`, commit `724c584`); differences from the Angular `master` branch are noted where they matter. Part B is the generic, framework-neutral state machine to implement in new widgets. Part C lists the behaviour decisions you must confirm with the user.
 
 ## Contents
 
@@ -8,7 +8,7 @@ Part A describes the flow exactly as the reference repository implements it (com
 - A2. Step 1: identifier entry and send
 - A3. Step 2: code entry, resend, verify
 - A4. Timer and limits
-- A5. Alternate paths (invisible, magic link, one-tap, Truecaller, verified session)
+- A5. Alternate paths (invisible, magic link, one-tap, Truecaller)
 - A6. Callback payloads
 - B. Generic state machine for new widgets
 - C. Decisions to confirm with the user
@@ -17,70 +17,68 @@ Part A describes the flow exactly as the reference repository implements it (com
 
 ## A1. Initialization
 
-1. `initSendOTP(config)` validates `widgetId`, `tokenAuth`, `success`; mounts `<msg91-otp-provider>`.
-2. Store reset, then `GET widget/getWidgetProcess?widgetId=…` with `tokenAuth` header.
-3. A full-panel loader ("Loading…") shows while config loads. On failure, `errors` holds the message (special text when an extension blocks XHR: "An external script is blocking the API call required for widget execution.").
-4. From the config the widget derives:
-   - mode: `processType.value` `'1'` both / `'2'` mobile / `'3'` email (`hideMethod` can force one when both).
-   - `otpLength` → input min/max length and placeholder dots.
-   - `verificationType` `'1'` OTP / `'2'` Magic Link (changes labels and hides the code input).
-   - `retryTime` → resend cooldown seconds; `retryCount` → max resends (default 2).
-   - retry channels: `processes` whose `processVia.value === '5'`, de-duplicated by `channel.value`.
-   - captcha: `captchaValidations` + `widgetMeta.captcha_type` (`2` = reCAPTCHA Enterprise, otherwise hCaptcha).
-   - `iFrame === 0` and running inside an iframe → UI hidden.
-   - `truecaller === 1` → attempt Truecaller on Android before showing the form.
-5. TraceIQ script is loaded; its token endpoint sets `window.traceiq_cookie_id`.
+1. `initSendOTP(config)` validates `tokenAuth`, `widgetId`, `success`, destroys existing instances, resolves the container and creates `OTPWidget`.
+2. Shadow DOM attached (unless `useShadowDOM: false`), styles injected, a light-DOM captcha slot added.
+3. `GET widget/getWidgetProcess?widgetId=…` with `tokenAuth` header. On failure: `failure(error)` and, in UI mode, "Failed to load widget. Please try again."
+4. From the config (`response.data || response`) the widget derives:
+   - mode: `processType.value` `'1'` both / `'2'` mobile / `'3'` email; `hideMethod` hides one when both are allowed.
+   - `otpLength` (UI falls back to 4 if missing) → input `maxlength` and placeholder dots.
+   - `verificationType` `'1'` OTP / `'2'` Magic Link (labels change, no code input).
+   - `retryTime` (default 25 s) → resend cooldown; `retryCount` (default 2) → max resends.
+   - retry channels: `processes` with `processVia.value === '5'`, filtered to email channels in email mode and non-email in mobile mode, de-duplicated by channel value.
+   - captcha: `captchaValidations` + `widgetMeta.captcha_type` `1` hCaptcha / `2` reCAPTCHA Enterprise / `3` reCAPTCHA v2.
+   - `iFrame === 0` inside an iframe → UI hidden, captcha still initialized.
+   - `truecaller === 1` → Truecaller attempted on Android before the form is used.
+5. TraceIQ script loaded; viewport meta added (UI mode); initial screen rendered; captcha initialized; prefilled `identifier` auto-sent when it matches `processType`.
 
 ## A2. Step 1: identifier entry and send
 
-- **Mobile**: intl-tel-input field; Enter key sends only when valid; error "Please enter valid mobile number" after blur. Identifier sent = E.164 without `+` (e.g. `919876543210`). A live preview line shows `+<dial code><number>`.
-- **Email**: whitespace stripped while typing; errors "Email field is required" / "Enter valid email" once touched.
-- Button label: "Send OTP" (mobile) / "Generate OTP" (email); with magic link: "Send Magic Link" / "Generate Magic Link".
-- **Captcha before send**: hCaptcha token from the visible widget, or reCAPTCHA Enterprise `execute(siteKey, {action: 'sendOtp'})`. Token goes into the request as `token`. Invalid site key → "Something went wrong! Please contact website support."
-- Inputs are disabled while the request is in flight and re-enabled on success or error.
-- Request: `POST widget/sendOtp` `{ tokenAuth, widgetId, identifier, token?, requestVariables? }`.
-- Success (`type !== 'error'`): `reqId = response.message`; move to step 2; focus the OTP input; start the cooldown timer; clear the captcha token.
-- Error: messages shown under the form; `failure` callback receives the error response.
+- Title "Mobile Verification" / "Email Verification"; radio buttons when both are allowed.
+- **Mobile**: intl-tel-input with geo-IP default country (`db-ip` → `ipinfo.io`, fallback `widgetData.defaultCountry.iso2` or `in`); only digits and `+` accepted; error "Please enter valid mobile number" on blur or submit; live preview `+<dial code><number>`. UI mode sends the number without `+`; headless keeps what the host passed.
+- **Email**: whitespace stripped while typing; "Email field is required" / "Enter valid email" on submit.
+- Button: "Send OTP" (mobile) / "Generate OTP" (email); "Magic Link" instead of "OTP" when `verificationType === '2'`. Enter submits.
+- **Captcha before send**: reCAPTCHA Enterprise `execute(siteKey, {action:'sendOtp'})`; hCaptcha/v2 must be solved first (visible), or hCaptcha runs invisible in headless mode without `captchaRenderId`. No token yet → send is silently skipped. Site-key failure → "Something went wrong! Please contact website support."
+- Request: `POST widget/sendOtp` `{tokenAuth, widgetId, identifier, requestVariables?, token?}`.
+- Success (`type === 'success'`): request id = `response.message` (or `request_id` / `requestId` / `reqId`); verification screen; cooldown starts; one-tap polling starts if enabled.
+- Error: message shown at the top of the card (removed after 5 s); captcha reset; inputs re-enabled; `failure` called.
 
 ## A3. Step 2: code entry, resend, verify
 
-- Header: "Enter OTP Sent to" + the identifier.
-- OTP input: digits only, `maxlength`/`minlength` = `otpLength`, paste accepted only if all digits (truncated to length). Typing clears the previous error.
-- **Verify** button enabled only when the value is digits, length equals `otpLength`, no resend is in flight, and the last error code is not `704`.
-- Request: `POST widget/verifyOtp` `{ tokenAuth, widgetId, otp, reqId, cookie_id? }`.
-- Success (`type === 'success'`): `success(response)` then close.
-- Failure: the response message is shown below the input (`invalidOtpError`), `failure` is called.
-- Error codes used by the UI: `703` invalid OTP, `704` verification limit reached (hides resend, disables verify).
-- **Resend** (UI mode, only while `retryCount < widget.retryCount ?? 2` and code ≠ 704, after cooldown):
-  - `widgetType '1'`: one link. Email → "Resend OTP"; mobile → "Get Via Call". Both send `retryChannel: null` (server picks the channel).
-  - `widgetType '2'`: "Resend OTP via SMS OR CALL OR WHATSAPP…" built from retry channels (email channel only for email mode; `VOICE` shown as `CALL`). Sends `retryChannel: <channel.value>`.
-  - Request: `POST widget/retryOtp` `{ tokenAuth, widgetId, reqId, retryChannel, requestVariables? }`.
-  - Success restarts the cooldown and increments `resendCount`. Retry is not captcha-gated.
-- `RetryChannelTypes`: SMS `'11'`, Voice `'4'`, Email `'3'`, WhatsApp `'12'`.
+- Title "Enter OTP Sent to" (or "Magic Link Sent to") + the identifier (with `+` for phones).
+- Code input: `type="text"`, `inputmode="numeric"`, `autocomplete="one-time-code"`, digits only, `maxlength = otpLength`, paste stripped to digits and truncated. Verify disabled until the length is complete; Enter submits.
+- Request: `POST widget/verifyOtp` `{tokenAuth, widgetId, otp, reqId}` (no TraceIQ `cookie_id` on this branch).
+- Success: `type === 'success'` or `message === 'OTP verified successfully'` → per-call success, `config.success`, TraceIQ `track(...)`, widget hidden.
+- Failure: message under the code input; code `704` → verify locked and resend hidden.
+- **Resend** (after cooldown, while resends used < `retryCount`):
+  - `widgetType '1'`: "Didn't receive OTP?" + one link: mobile "Get Via Call", email "Resend OTP"; sends `retryChannel: null`.
+  - `widgetType '2'`: "Resend OTP via SMS OR WHATSAPP OR CALL…" from retry channels; sends the channel code.
+  - Request: `POST widget/retryOtp` `{tokenAuth, widgetId, reqId, retryChannel, requestVariables?}`.
+  - Success restarts the cooldown, or hides resend once the limit is reached. Response or error with code `704` → lock verify; message matching "already verified" → hide resend.
+- Channel codes: SMS `'11'`, WhatsApp `'12'`, Voice `'4'`, Email `'3'`.
 
 ## A4. Timer and limits
 
-- Cooldown: RxJS `timer(1000, 1000)`; `timeRemain = timerSec - tick`; label "Retry in N Seconds"; stops at 0, then the resend link appears.
-- Started after a successful send and after each successful resend.
-- Max resends enforced client-side only in UI mode (`retryCount` counter). Headless mode leaves limits to the server.
-- **OTP expiry is not handled client-side.** `expiryTime` exists in the type but is never read; the server rejects expired codes and the UI shows the server message.
+- Cooldown: `setInterval` every 1 s decrementing from `retryTime`; label "Retry in N Seconds"; at 0 the resend options appear.
+- Restarted after each successful resend; cleared on hide, close and destroy.
+- Resend limits are counted in the UI (`retryClickCount`) and in the controller (`retryAttempts`) in UI mode; headless mode leaves limits to the server.
+- **OTP expiry is not handled client-side** on either branch; the server rejects expired codes and the UI shows its message.
 
 ## A5. Alternate paths
 
 | Path | Trigger | Behaviour |
 | --- | --- | --- |
-| Invisible verification | `sendOtp` response has `invisibleVerified: true` and `access-token` | Treated as verified immediately; `message` replaced by the access token, `referenceId` = original message |
-| Magic link | `verificationType === '2'` | No code input; closing after a send reports `magicLinkSent: true`, message "Magic Link Sent." |
-| WhatsApp one-tap | widget `oneTapVerification` and a `reqId` exists | `POST widget/isOneTapAuthenticated` every 2 s while `message === 'Verification Pending'`; JWT (`eyJ…`) or "Already Verified" → success; "Verification Expired" → failure |
-| Truecaller | `truecaller === 1`, Android (or mobile in desktop-site mode), not iOS | `GET widget/getTruecallerSession` → open `truecallersdk://` deeplink (top window) → poll `GET widget/truecallerStatus/{requestId}` every 1 s for 10 s (+ on tab visibility) → JWT → success `{token, message, mobile}`; failure/timeout → fall back to the OTP form |
-| Verified session | host calls `window.checkVerifiedSession()` | `POST widget/checkVerifiedSession` with `{widgetId, cookie_id, mobile:true, email:false}`, then email; resolves on success/verified/JWT, rejects otherwise |
+| Invisible verification | send response has `invisibleVerified` and `access-token` | Success immediately with `message` = access token, `referenceId` = original message |
+| Magic link | `verificationType === '2'` | No code input; closing after a send reports `magicLinkSent: true`, "Magic Link Sent." |
+| WhatsApp one-tap | widget `oneTapVerification` after a send, or `oneTapWhatsappVerification()` | `POST widget/isOneTapAuthenticated` every 2 s while `message === 'Verification Pending'`; JWT (`eyJ…`) or "Already Verified" → success; "Verification Expired" → failure |
+| Truecaller | `truecaller === 1`, Android (or mobile in desktop-site mode), not iOS | `GET widget/getTruecallerSession` → open `truecallersdk://` at top level (iframe: `postMessage` to the parent page, whose listener is installed by the bundle) → poll `GET widget/truecallerStatus/{requestId}` every 1 s for 10 s (+ on tab visibility) → JWT → success `{token, message, mobile}`; failure/timeout → OTP form |
+| Verified session | master only | `checkVerifiedSession` is not on `production-js` |
 
 ## A6. Callback payloads
 
-- `success`: the verify response object (`{ type: 'success', message, request_id?, ... }`); for invisible/one-tap paths `message` is the access token (JWT); Truecaller: `{ token, message, mobile }`.
-- `failure`: raw API error responses, HTTP error objects, or on user close `{ code: 0, closeByUser: true, magicLinkSent, message: 'User cancelled the verification process.' | 'Magic Link Sent.' }`.
+- `success`: the verify response object; invisible path: response with `message` = access token; one-tap UI path: the JWT string itself; Truecaller: `{token, message, mobile}`.
+- `failure`: API error body (`apiResponse`), HTTP errors as `{status, message, data, error}`, init errors, or on close `{code: 0, closeByUser: true, magicLinkSent, message: 'User cancelled the verification process.' | 'Magic Link Sent.'}`.
 
-The access token returned to the browser is **not** proof of verification by itself. The integrator's backend must validate it server-side before trusting the user. The reference repo contains no server-side step.
+The token returned to the browser is **not** proof of verification by itself. The integrator's backend must validate it server-side before trusting the user. The reference contains no server-side step.
 
 ---
 

@@ -8,7 +8,7 @@ A Claude skill that walks you through building your own **OTP verification widge
 - **Delivery formats:** embeddable `<script>`, npm package, standalone page, or a component inside your existing app. It builds only the ones you need.
 - **Tested and documented:** unit, integration and E2E tests, plus README, API, configuration, integration, customization, architecture, testing and deployment docs and a working demo page. Test results are labelled as mocked or real API.
 
-The OTP flow (timers, resend limits, channel retry, error handling, embedding) is based on [Walkover-Web-Solution/OTP-widget-web](https://github.com/Walkover-Web-Solution/OTP-widget-web). The widgets it generates are independent projects with no runtime dependency on that repo.
+The OTP flow (timers, resend limits, channel retry, error handling, embedding) is based on the [`production-js` branch](https://github.com/Walkover-Web-Solution/OTP-widget-web/tree/production-js) of Walkover-Web-Solution/OTP-widget-web, the vanilla JavaScript SDK in `core-js/`. The widgets it generates are independent projects with no runtime dependency on that repo.
 
 ## Install
 

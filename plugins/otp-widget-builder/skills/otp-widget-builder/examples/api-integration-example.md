@@ -208,6 +208,6 @@ If the user is integrating MSG91's widget APIs instead, the same adapter shape m
 | --- | --- | --- |
 | `send` | `POST widget/sendOtp {tokenAuth, widgetId, identifier}` | `requestId ← message`; `type === 'error'` → error |
 | `resend` | `POST widget/retryOtp {tokenAuth, widgetId, reqId, retryChannel}` | channel values `'11'` SMS, `'4'` voice, `'3'` email, `'12'` WhatsApp |
-| `verify` | `POST widget/verifyOtp {tokenAuth, widgetId, otp, reqId}` | `token ← message` on `type === 'success'`; `code 703` → `INVALID_OTP`, `704` → `TOO_MANY_ATTEMPTS` |
+| `verify` | `POST widget/verifyOtp {tokenAuth, widgetId, otp, reqId}` | `token ← message` on `type === 'success'`; `704` → `TOO_MANY_ATTEMPTS` (`703` → `INVALID_OTP` was used on master) |
 
-MSG91 returns errors in the body (`type: 'error'`), so the adapter must check the body even when HTTP status is 200. Confirm the current contract with MSG91's documentation and the user's widget settings before shipping.
+MSG91 can return errors in the body (`type: 'error'`) with HTTP 200 as well as HTTP errors, so the adapter must check both. The reference's `production-js` client also retries once against a backup host on network errors and 5xx; ask the user whether their setup needs that. Confirm the current contract with MSG91's documentation and the user's widget settings before shipping.

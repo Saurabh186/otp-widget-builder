@@ -1,189 +1,193 @@
 # Reference Repository Architecture
 
-Verified against `Walkover-Web-Solution/OTP-widget-web` at commit `7e3c798` (master, November 2026). Every statement below comes from reading the source. If the user says the repo has changed, re-inspect it before relying on this file.
+**Reference branch: `production-js`** of `Walkover-Web-Solution/OTP-widget-web`, verified at commit `724c584` (November 2026). It contains the production widget as a vanilla JavaScript SDK in `core-js/`. Every statement below comes from reading that branch's source. The repo's `master` branch holds an older Angular 19 implementation of the same widget; see §12.
+
+Clone it with:
+
+```bash
+git clone --branch production-js https://github.com/Walkover-Web-Solution/OTP-widget-web.git
+```
+
+If the user says the branch has changed, re-inspect it before relying on this file.
 
 ## Contents
 
-1. What the repo is
+1. What it is
 2. Stack and dependencies
 3. Directory map
 4. Runtime architecture
 5. Public JavaScript contract (`initSendOTP`)
 6. Headless mode (`exposeMethods`)
-7. Environment and build
-8. Shared libraries worth knowing
+7. Configuration, environment and build
+8. Patterns worth reusing
 9. Conventions
 10. Known defects (do not copy)
-11. What to reuse in a new widget
+11. Docs in the branch that disagree with the code
+12. The `master` branch (Angular, legacy)
 
-## 1. What the repo is
+## 1. What it is
 
-The browser client for MSG91's embeddable OTP widget. A host page loads one script bundle (`otp-provider.js`) and calls `window.initSendOTP({...})`. The widget fetches its configuration from MSG91 (`widget/getWidgetProcess`), collects a phone number or email, sends and verifies an OTP through MSG91 widget APIs, and reports the result through `success` / `failure` callbacks.
+The browser SDK for MSG91's embeddable OTP widget. A host page loads one IIFE bundle (`otp-provider.js`) and calls `window.initSendOTP({...})`. The SDK fetches the widget configuration from MSG91 (`widget/getWidgetProcess`), renders a dialog in a Shadow DOM, collects a phone number or email, sends/resends/verifies the OTP through MSG91 widget APIs, and reports through `success` / `failure` callbacks. A headless mode exposes the same operations on `window` for custom UIs.
 
-It does **not** send messages itself, manage widget settings, or verify tokens on a server. Those live in MSG91's backend.
+It does not send messages itself, manage widget settings, or validate tokens server-side.
 
 ## 2. Stack and dependencies
 
 | Area | Choice |
 | --- | --- |
-| Framework | Angular 19.2 (NgModule-based, `standalone: false` components) |
-| Embedding | `@angular/elements` custom element `msg91-otp-provider`, `@webcomponents/custom-elements` polyfill |
-| State | NgRx Store + Effects 19 (single `otp` feature slice) |
-| UI kit | Angular Material 19 (button, form-field, input, radio, progress bar/spinner, icon, dialog, tooltip) |
-| Phone input | `intl-tel-input` 17 (script loaded at runtime from MSG91's domain) + `google-libphonenumber` |
-| Captcha | `ng-hcaptcha` / `vanilla-hcaptcha` (hCaptcha), Google reCAPTCHA Enterprise loaded by script tag |
-| Utilities | `lodash-es`, `dayjs`, `rxjs` 7.8, `ngx-cookie-service` |
-| Build | `ngx-build-plus` (single bundle) + custom webpack (`DefinePlugin` for env), TypeScript 5.5 |
-| Tests / lint | **None.** No `*.spec.ts`, no Karma config, no root ESLint/Prettier config. `ng test` is listed in `package.json` but has nothing to run. |
+| Language | Plain JavaScript (ES modules), no framework, no TypeScript |
+| Build | Vite 5, library mode, one IIFE (`Msg91OtpProvider`) → `otp-provider.js` |
+| State | Own `StateManager` (observer pattern) |
+| UI | Template-string HTML + DOM APIs, `CustomEvent`s between UI and controller |
+| Styling | `src/styles/main.css` imported as raw text and injected into the Shadow DOM; every class prefixed `msg91-` |
+| Phone input | `intl-tel-input` 17 (bundled) + `google-libphonenumber` fallback validation; flag sprites bundled, CDN fallback |
+| Captcha | hCaptcha, reCAPTCHA Enterprise, reCAPTCHA v2 (scripts loaded on demand) |
+| Env | `dotenv` at build time → Vite `define` |
+| Tests / lint | **None.** No test runner, no ESLint/Prettier config |
 
-`ng-otp-input` and `ng-recaptcha` are installed but not used for rendering (`ReCaptchaV3Service` is imported only so `grecaptcha` typings resolve).
-
-## 3. Directory map (OTP-relevant parts)
+## 3. Directory map
 
 ```
-src/
-├── main.ts / main.element.ts      Bootstraps ElementModule (identical files)
-├── app/
-│   ├── element.module.ts          Defines <msg91-otp-provider>, installs window.initSendOTP
-│   ├── app.module.ts, app.component.*   Dev-only shell; auto-calls initSendOTP outside production
-│   ├── otp/
-│   │   ├── otp.module.ts          Material imports, NgRx store/effects, DI tokens for base URL
-│   │   ├── send-otp/              Host component: Shadow DOM, overlay, loader, footer, captcha/TraceIQ script loading
-│   │   ├── component/send-otp-center/   All flow logic + form UI (≈1270 lines)
-│   │   ├── service/otp.service.ts       HTTP calls
-│   │   ├── service/urls/otp-urls.ts     Endpoint path builders (the client's API contract)
-│   │   ├── model/otp.ts                 Request/response/config types, RetryChannelTypes enum
-│   │   ├── store/                       actions, effects, reducer, selectors
-│   │   └── truecaller/                  Truecaller session, deeplink, polling runner
-│   └── libs/                       Vendored @msg91/* shared libs (path aliases in tsconfig.json)
-│       ├── services/http-wrapper   HttpClient wrapper (adds proxy headers for other MSG91 apps)
-│       ├── models/root-models      BaseResponse, errorResolver, DI token enum
-│       ├── utils                   IntlPhoneLib, inIframe, iframeDetection, many unrelated helpers
-│       ├── regex                   EMAIL_REGEX, ONLY_INTEGER_REGEX, others
-│       ├── directives/remove-character-directive   Keystroke filter for inputs
-│       └── service/lib/utils/admin/*   Email/RCS/voice/WhatsApp URL builders: unrelated carry-over
-├── assets/js/captcha-handler.js   Standalone script: background captcha execution with backoff
-├── environments/                  env-variables.ts reads process.env.OTP_PROVIDER_*
-├── styles.scss, otp-global.scss, app_theme-colors.scss   Global + widget styles, Material theme
-tools/postbuild.js                 Renames main.js → otp-provider.js, copies captcha-handler.js
-docs/VISION.md, OPEN_QUESTIONS.md  Product notes (no API spec exists in the repo)
+package.json                 root scripts delegate to core-js (start, build:test, build:prod)
+README.md                    still Angular CLI boilerplate (stale)
+core-js/
+├── package.json             vite, dotenv; intl-tel-input, google-libphonenumber, vanilla-hcaptcha
+├── vite.config.js           IIFE lib build, env injection, writes dist artifacts
+├── index.html               dev demo page (#otp-widget-container)
+├── .env.example             OTP_PROVIDER_* variable names
+├── README.md, INTEGRATION.md, CHANGELOG.md   SDK docs (partly out of date, §11)
+└── src/
+    ├── main.js              IIFE entry: initSendOTP, instance map, window methods, demo auto-init
+    ├── config/config.js     env cleanup, API base URL, fallback URL, API_ENDPOINTS
+    ├── services/OTPService.js   fetch wrapper, tokenAuth header, backup-host fallback
+    ├── core/
+    │   ├── OTPWidget.js     controller: init, send, verify, retry, one-tap, Truecaller, close, destroy
+    │   ├── UIManager.js     screens, validation messages, retry timer, retry channel links
+    │   ├── StateManager.js  loading / widgetData / requestId / error / currentScreen
+    │   ├── CaptchaManager.js    hCaptcha, reCAPTCHA Enterprise / v2, token retrieval
+    │   ├── IntlPhoneManager.js  intl-tel-input setup, geo-IP country, validation
+    │   └── secured-by-logo.js   "Secured by MSG91" SVG footer
+    ├── truecaller/          session, deeplink, status polling, iframe postMessage bridge
+    ├── styles/main.css      widget styles (msg91- prefix)
+    ├── captcha-handler.js   standalone background-captcha script (copied to dist as is)
+    └── assets/img/          flags.png, flags@2x.png
 ```
 
 ## 4. Runtime architecture
 
 ```
-host page ── window.initSendOTP(config)
-                │  validates widgetId, tokenAuth, success()
-                ▼
-<msg91-otp-provider>  (SendOtpComponent, ViewEncapsulation.ShadowDom)
-   │  dispatch resetAll, getWidgetData  ──► OtpEffects ──► OtpService.getWidgetData ──► GET widget/getWidgetProcess
-   │  loads Inter font + viewport meta (UI mode only)
-   │  loads reCAPTCHA Enterprise script if widget needs it; loads TraceIQ script
-   ▼
-<msg91-send-otp-center>  (SendOtpCenterComponent)
-   step 1: choose mobile/email → validate → captcha → dispatch getOtpAction ─► POST widget/sendOtp
-   step 2: OTP input, resend countdown, retry channels → POST widget/retryOtp
-           verify → POST widget/verifyOtp → success callback → close
-   side paths: Truecaller (Android), WhatsApp one-tap polling, magic link, invisible verification
+host page ── window.initSendOTP(config)                         (main.js)
+   validate tokenAuth, widgetId, success() → destroy ALL existing instances
+   resolve container: config.containerId | #otp-widget-container | new <msg91-otp-provider>
+   new OTPWidget(container, {...envConfig, ...userConfig}).init()
+        │
+        ├─ attachShadow (default; useShadowDOM:false disables) + inject CSS, Inter font, intl CSS
+        ├─ light-DOM <div id="captcha-container" slot="captcha"> so captcha iframes work
+        ├─ OTPService(tokenAuth) ── GET widget/getWidgetProcess
+        ├─ load TraceIQ script; iframe check (iFrame:0 → hide UI, keep captcha)
+        ├─ UI mode: viewport meta, UIManager.render → initial screen
+        ├─ Truecaller attempt (Android), CaptchaManager.init, auto-send prefilled identifier
+        ▼
+   UIManager dispatches CustomEvents → OTPWidget handlers
+     sendOtp  → captcha token → POST widget/sendOtp → verification screen + retry timer
+     retryOtp → POST widget/retryOtp → restart timer / hide resend / lock on 704
+     verifyOtp→ POST widget/verifyOtp → success callback → TraceIQ track → hide
+     closeWidget → failure({code:0, closeByUser:true, ...}) → hide
 ```
 
-Layering in the reference:
-
-- **UI**: Angular templates + Material, all styles inside Shadow DOM.
-- **Flow logic**: in the center component (too much in one class; see defects).
-- **State**: NgRx reducer holds `widgetData`, in-progress flags, `otpGenerateData.reqId`, `resendCount`, `errors`, `apiErrorResponse`.
-- **API**: `OtpService` + `otp-urls.ts`; effects translate responses into actions and invoke per-call callbacks.
-- **Config**: build-time env (`OTP_PROVIDER_*`) + runtime config from `getWidgetProcess` + host config passed to `initSendOTP`.
+Layering: `config` (env + endpoints) → `OTPService` (HTTP) → `OTPWidget` (flow) → `UIManager` (DOM) with `CaptchaManager`, `IntlPhoneManager`, Truecaller runner as collaborators. Cleaner than master, though `OTPWidget` still mixes flow, captcha orchestration, one-tap polling and tracking.
 
 ## 5. Public JavaScript contract: `initSendOTP(config)`
 
-Defined in `element.module.ts`. Runs after DOM ready, removes any existing `<msg91-otp-provider>`, creates a new one and appends it to `<body>`.
-
 | Key | Required | Effect in code |
 | --- | --- | --- |
-| `widgetId` | yes | Throws `Widget Id is missing!` if absent |
-| `tokenAuth` | yes | Throws `Token is missing!` if absent; sent as `tokenAuth` header on config/Truecaller/one-tap calls and in the body of send/retry/verify |
-| `success` | yes | Must be a function, else throws `success callback function missing !` |
-| `failure` | no | Called with API error responses and with the close-by-user object |
-| `identifier` | no | Prefills phone/email; a leading `+` is stripped; if valid, OTP is sent automatically (unless the Truecaller flow will run) |
+| `widgetId` | yes | Error `Widget Id is missing!` |
+| `tokenAuth` | yes | Error `Token is missing!`; sent as `tokenAuth` header on every call and in send/retry/verify bodies |
+| `success` | yes | Must be a function, else `success callback function missing !` |
+| `failure` | no | Init errors, API errors, close-by-user payload |
+| `identifier` | no | Prefill; auto-sends when it matches the widget's `processType` (unless Truecaller runs) |
+| `exposeMethods` | no | `true`/`'true'` → headless, no UI |
+| `captchaRenderId` | no | Element id for a visible captcha in headless mode; without it hCaptcha runs invisible |
+| `hideMethod` | no | `'mobile'` or `'email'` when the widget allows both |
+| `containerId` | no | Mount into this element (created if missing) instead of `<msg91-otp-provider>` |
 | `disableInput` | no | Disables the phone input |
-| `exposeMethods` | no | `true`/`'true'` → headless mode, no UI rendered |
-| `captchaRenderId` | no | Headless mode: element id where the hCaptcha widget is rendered |
-| `hideMethod` | no | `'mobile'` or `'email'`: hides that option when the widget allows both |
-| `style` | no | Stored but **never applied** (see defects) |
-| any other key | no | For widgets with `widgetType.value === '2'`, the whole config minus reserved keys is sent as `requestVariables` (template variables) |
+| `useShadowDOM` | no | `false` renders without Shadow DOM |
+| any other key | no | Forwarded as `requestVariables` when `widgetType.value !== '1'` |
+
+Errors in `initSendOTP` are caught, logged and passed to `failure` (not thrown). `window.destroyOTPWidget(instanceId)` destroys an instance. `initSendOTP` returns the instance only when `document.body` already exists; called earlier it returns `undefined`.
 
 ## 6. Headless mode (`exposeMethods: true`)
 
-The center component defines these on `window` with `Object.defineProperties` (non-writable, non-configurable), only if `sendOtp`/`retryOtp`/`verifyOtp`/`oneTapWhatsappVerification` are not already present:
+Re-assigned on every init (plain writable globals, so re-init rebinds them correctly):
 
 | Method | Signature | Notes |
 | --- | --- | --- |
-| `sendOtp` | `(identifier, success?, error?)` | Errors via callback if identifier missing; captcha handled internally (invisible hCaptcha or reCAPTCHA Enterprise) unless `captchaRenderId` is set |
-| `retryOtp` | `(channel, success?, error?, reqId?)` | `channel` only used for `widgetType '2'`; required there |
-| `verifyOtp` | `(otp, success?, error?, reqId?)` | Sends `cookie_id` from `window.traceiq_cookie_id` when set |
-| `getWidgetData` | `()` | Returns the loaded widget config |
-| `isCaptchaVerified` | `()` | `true` once an hCaptcha token was captured |
-| `oneTapWhatsappVerification` | `(requestId, success?, error?)` | Polls `isOneTapAuthenticated` every 2 s |
-| `checkVerifiedSession` | `(widgetId?, cookieId?) → Promise` | Always exposed (also in UI mode); tries mobile then email |
+| `sendOtp` | `(identifier, success?, failure?)` | Identifier sent as given (a leading `+` is kept; UI mode strips it) |
+| `verifyOtp` | `(otp, success?, failure?, requestId?)` | Falls back to the last `requestId` |
+| `retryOtp` | `(channel, success?, failure?, requestId?)` | `channel` = `'11'` SMS, `'12'` WhatsApp, `'4'` voice, `'3'` email; required only when `widgetType.value === '2'` |
+| `getWidgetData` | `()` | Loaded config |
+| `isCaptchaVerified` | `()` | `true` once a captcha token exists |
+| `oneTapWhatsappVerification` | `(requestId, success?, failure?)` | Polls `isOneTapAuthenticated` every 2 s |
 
-## 7. Environment and build
+API failures go to both the per-call callback and `config.failure`. Missing inputs call the per-call callback with `{message}` or throw if none was given. `checkVerifiedSession` (present on master) does not exist on this branch.
 
-Env vars read at build time through `process.env` (webpack `DefinePlugin`, `.env` loaded by `dotenv`):
+## 7. Configuration, environment and build
 
-`OTP_PROVIDER_API_URL`, `OTP_PROVIDER_BASE_URL`, `OTP_PROVIDER_MSG_MID_PROXY`, `OTP_PROVIDER_RECAPTCHA_V3_SITE_KEY`, `OTP_PROVIDER_RECAPTCHA_ENTERPRISE_SCRIPT_URL` (contains `:siteKey`), `OTP_PROVIDER_RECAPTCHA_ENTERPRISE_SITE_KEY`, `OTP_PROVIDER_HCAPTCHA_ENTERPRISE_SITE_KEY`, `OTP_PROVIDER_TRACE_IQ_SCRIPT_URL` (contains `:timestamp`), `OTP_PROVIDER_TRACE_IQ_API_URL`.
+Env variables (read from `process.env`, then `../.env`, then `core-js/.env`; later wins): `OTP_PROVIDER_API_URL`, `OTP_PROVIDER_MSG_MID_PROXY` (default `/api/v5`), `OTP_PROVIDER_HCAPTCHA_ENTERPRISE_SITE_KEY` (or `VITE_HCAPTCHA_SITE_KEY`), `OTP_PROVIDER_RECAPTCHA_ENTERPRISE_SCRIPT_URL` (or `VITE_RECAPTCHA_ENTERPRISE_URL`, default Google's `enterprise.js?render=:siteKey`), `OTP_PROVIDER_RECAPTCHA_ENTERPRISE_SITE_KEY`, `OTP_PROVIDER_RECAPTCHA_V3_SITE_KEY`, `OTP_PROVIDER_BASE_URL` (picked up but unused by `config.js`).
 
-API base URL = `apiUrl + msgMidProxy` (commented history shows `/api/v5`).
+`config.apiUrl` = `OTP_PROVIDER_API_URL` + proxy, defaulting to `https://test.msg91.com/api/v5` when unset. `fallbackApiUrl` = `https://msg91backup.phone91.com/api/v5`.
 
-Scripts: `start` (`ng serve`), `build:test` / `build:master` (development config), `build:prod` (production config). Each build runs `tools/postbuild.js`, which copies `main.js` to `otp-provider.js`, copies `captcha-handler.js` to the output root and deletes `assets/`. `singleBundle: true` makes one JS file; global styles are injected.
+Build (`vite.config.js`, not run while writing this file): `npm run build:prod` at the root installs and builds `core-js` into `<repo>/dist/otp-widget/` with `otp-provider.js` (IIFE, minified in production, sourcemaps in development), `captcha-handler.js`, `assets/flags*.png` and a minimal `index.html`. The comments name AWS Amplify as the deploy target. `npm start` runs the Vite dev server on port 3000.
 
-Deployment target and CDN URL are not in the repo (OPEN_QUESTIONS OQ-002).
+## 8. Patterns worth reusing
 
-## 8. Shared libraries worth knowing
-
-- `createUrl(base, path)` → `${base}/${path}`.
-- `errorResolver(x)` → always `string[]` (string → `[x]`, array → as is, object → flattened values, otherwise `['Something went wrong.']`). A good pattern for normalizing error shapes.
-- `IntlPhoneLib`: wraps intl-tel-input; `isRequiredValidNumber` (libphonenumber validation), `phoneNumber` (E.164 with `+`), `selectedCountryData`. Initial country uses `widgetData.defaultCountry.iso2`, falling back to `'in'`, after IP lookups.
-- `RemoveCharacterDirective`: blocks keys not matching `allowedRegex`, strips whitespace on input. The OTP field uses `allowedRegex="[0-9]"`.
-- `inIframe()` (`window.self !== window.top`, `true` on cross-origin error) and `iframeDetection()`.
+- **Single IIFE bundle + global init**, internal instance map, `destroy()` that clears timers, polling, Truecaller, captcha and DOM.
+- **Shadow DOM by default, with an opt-out**, and CSS shipped inside the bundle (`?raw` import) so the host page is untouched; all classes prefixed (`msg91-`).
+- **Captcha through a light-DOM slot**, because captcha iframes do not work inside a shadow root.
+- **UI → controller via `CustomEvent`s** (`sendOtp`, `verifyOtp`, `retryOtp`, `closeWidget`, `composed: true`), keeping DOM code out of the flow logic.
+- **Re-bindable headless globals** (fixes master's non-configurable `defineProperties`).
+- **Server-driven config** (`getWidgetProcess`) for OTP length, channels, retry time/count, captcha, iframe policy.
+- **OTP field**: `inputmode="numeric"`, `autocomplete="one-time-code"`, digits-only on input and paste, Verify enabled only at full length.
+- **Phone validation** with intl-tel-input plus a libphonenumber fallback that tries several candidate formats (leading 0, dial code typed twice).
+- **Resend handling**: cooldown timer, max resends, hide resend on 704 or "already verified", lock verify on 704.
+- **Viewport meta injection** so the dialog is not scaled down on phones; removed on close.
+- **Backup API host** on network failure or 5xx (reuse only if the user's backend has one).
 
 ## 9. Conventions
 
-- Component selectors prefixed `msg91-`; NgRx action types `[OTP] ...`; `*InProcess` / `*Success` boolean pairs per request.
-- `BaseComponent` supplies `destroy$` for `takeUntil` cleanup.
-- 4-space indentation in source (despite `.editorconfig` saying 2), single quotes, SCSS.
-- `strict: false`, `strictTemplates: false`, heavy `any` usage.
+- Classes per responsibility (`OTPWidget`, `UIManager`, `CaptchaManager`, ...), ES module imports, 4-space indent, single quotes.
+- Log prefix `[MSG91 OTP]`; CSS prefix `msg91-`; element `msg91-otp-provider`; viewport meta id `meta-tag-id-msg91-otp-provider`.
 
-## 10. Known defects (observed in code: do not copy)
+## 10. Known defects (do not copy)
 
 | Defect | Where | Consequence |
 | --- | --- | --- |
-| `config.style` stored in `css$` but never bound in the template | `send-otp.component.ts` | Host styling via config has no effect |
-| `config.exposedMethods` typo (should be `exposeMethods`) | `onCaptchaVerified` / `onError` | `config.captchaVerified` callback never fires |
-| `+this.widgetData?.retryTime ?? 25` | center component | `+undefined` is `NaN`, so the 25 s default never applies |
-| `window` methods defined non-configurable once | `exposeMethodsToWindow` | Calling `initSendOTP` again leaves methods bound to the first (destroyed) component |
-| `OtpService.options` is one shared mutable object | `otp.service.ts` | Headers leak between calls; `tokenAuth` header depends on call order |
-| Inconsistent HTTP error extraction (`err.error.message` vs `err.errors`) | `otp.effects.ts` | Resend/verify network errors collapse to "Something went wrong." |
-| Whole host config forwarded as `requestVariables` | `makeAdditionalConfig` | Unrelated keys (`style`, `hideMethod`, ...) go to the server |
-| `geoIpLookup` calls `http://ip-api.com` (plain HTTP) | `libs/constant` | Mixed content on HTTPS hosts; third-party IP lookup without consent |
-| Sample `widgetId` / `tokenAuth` committed | `app.component.ts` | Never copy credentials from the reference into generated projects |
-| `installTruecallerParentMessageListener` never called | `truecaller.utils.ts` | Parent-page deeplink bridge is not active |
-| `expiryTime` in the model is never read | `model/otp.ts` | No client-side OTP expiry; expiry is server-enforced only |
-| One 1,270-line component holds UI, flow, captcha, polling | center component | Hard to test; split responsibilities in new projects |
-| `libs/service/lib/utils/admin/*`, `curl-to-json`, etc. | `libs/` | Unrelated code bundled into the repo |
+| Demo auto-init ships in the production bundle | `main.js` `initDemo` | Any host page with `#otp-widget-container` (the id `INTEGRATION.md` tells hosts to use) auto-initializes with hard-coded sample credentials |
+| Sample `widgetId` / `tokenAuth` committed | `main.js`, `INTEGRATION.md` | Never copy credentials from the reference |
+| "Multiple instances" claimed, but every `initSendOTP` destroys all instances first | `main.js` `clearExistingWidgets` | Only one widget can live on a page |
+| `initSendOTP` returns `undefined` when called before `<body>` exists | `main.js` `documentReady` | `widget.instanceId` (as documented) fails |
+| Verbose `console.log` in production, including shadow-root HTML and request ids; `testSendOTP`/`testVerifyOTP`/`testRetryOTP` globals | `main.js`, `OTPWidget.js` | Noise and data in host consoles; global namespace pollution |
+| Dynamic text inserted with `innerHTML` (identifier, some error messages, retry labels) | `UIManager.js` | HTML injection risk; always use `textContent` for dynamic strings |
+| Send and Verify buttons stay enabled during requests | `UIManager.js` | Double submits possible |
+| Errors removed after 5 s, no `aria-live`/`role="alert"` | `UIManager.showError` | Screen-reader users and slow readers miss errors |
+| Countdown uses tick counting (`setInterval` decrement) | `UIManager.startRetryTimer` | Drifts in background tabs; use an end timestamp |
+| TraceIQ script always loaded from `pass.hostnsoft.com`; after verify sends phone/email, domain, company id, user agent | `OTPWidget.initTraceIq` / `trackUser` | Personal data to a third party without host opt-in; generated widgets must not do this unless the user explicitly asks |
+| Backup-host switch is sticky; network-error branch condition is dead code; non-JSON responses throw | `OTPService.js` | Hard-to-debug failures; guard JSON parsing |
+| Non-reserved config keys (`containerId`, `hideMethod`, `captchaRenderId`, `disableInput`, ...) forwarded as `requestVariables` | `getRequestVariables` | Unrelated data sent to the server; use an explicit allow-list |
+| `postMessage(..., '*')` and a listener that does not check `event.origin` | `truecaller.utils.js` | Only the deeplink scheme is validated; check origins in new code |
+| hCaptcha prefers the env site key over the widget's; reCAPTCHA v2 uses the env var named `..._V3_SITE_KEY` | `CaptchaManager` | Confusing configuration |
+| No tests, lint or types | whole branch | Generated projects must add them |
 
-## 11. What to reuse in a new widget
+## 11. Docs in the branch that disagree with the code
 
-Reuse the **ideas**, re-implement cleanly in the chosen stack:
+Trust the code. Specifically:
 
-- Two-step flow (identifier → code) with a server-driven config step.
-- Per-request in-progress/success/error state and a `reqId` carried from send to retry/verify.
-- Resend cooldown + max-retry count + server "limit reached" code handling.
-- Channel-specific retry (SMS, voice, email, WhatsApp) when the backend supports it.
-- Embeddable custom element + global init function + Shadow DOM isolation.
-- Headless API for teams that bring their own UI.
-- Paste handling and digits-only filtering for the OTP field; E.164 phone validation.
-- Error normalization into a string list.
-- Callback contract: `success(result)`, `failure(error)`, explicit "closed by user" payload.
+- `core-js/README.md` lists endpoints `GET /widget/configuration/widgetId`, `POST /otp`, `/otp/verify`, `/otp/retry`; the code calls `widget/getWidgetProcess`, `widget/sendOtp`, `widget/verifyOtp`, `widget/retryOtp`, `widget/isOneTapAuthenticated`.
+- README's `VITE_API_URL` is not read anywhere; the API URL comes from `OTP_PROVIDER_API_URL` + `OTP_PROVIDER_MSG_MID_PROXY`.
+- README/INTEGRATION show `retryOtp('mobile' | 'email', ...)`; the code expects channel codes (`'11'`, `'12'`, `'4'`, `'3'`).
+- INTEGRATION's multiple-instances example does not work (§10).
+- The root `README.md` is Angular boilerplate.
 
-Do not reuse: NgRx (unless the host app already uses it), the vendored `@msg91/*` libs, Angular Material inside an embeddable bundle (size), the defects above.
+## 12. The `master` branch (Angular, legacy)
+
+`master` (commit `7e3c798`) implements the same widget in Angular 19 with NgRx, Angular Material and `@angular/elements`, built with `ngx-build-plus` into the same `otp-provider.js` name. Same MSG91 endpoints and flow, plus `checkVerifiedSession` and TraceIQ `cookie_id` on verify. Its notable defects: the `style` option is never applied, the `exposedMethods` typo breaks `captchaVerified`, the resend default is `NaN`, and the `window` methods are non-configurable, so re-init leaves stale bindings. Use `master` only if the user is customizing that Angular code specifically.

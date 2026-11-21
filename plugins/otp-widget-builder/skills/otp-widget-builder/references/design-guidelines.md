@@ -25,25 +25,25 @@ Never drop a functional state (error, loading, disabled, cooldown) to match a de
 
 ## 2. Reference design (measured from the repo)
 
-From `otp-global.scss`, `send-otp*.scss`, `app_theme-colors.scss`:
+From `core-js/src/styles/main.css` on the `production-js` branch (all classes prefixed `msg91-`, injected into the Shadow DOM). It deliberately keeps the look of the older Angular version.
 
 | Element | Value |
 | --- | --- |
-| Presentation | Full-screen fixed overlay `rgb(33 37 40 / 95%)`, centred card, `z-index` 1000 / 999999 |
+| Presentation | Full-screen fixed overlay `rgb(33 37 40 / 95%)`, centred card (`z-index` 1000 / 999999) |
 | Card | 380 px wide, min-height 350 px, padding 48 px 32 px, radius 10 px, white, layered shadow |
 | Content width | 316 px |
-| Font | Inter (Google Fonts), weights 400/500 |
-| Title | 20 px / 24 px, weight 500, `#3f4346`, margin-bottom 24 px |
-| Subtitle/helper | 14 px / 16 px, `#3f4346`; identifier on step 2: 18 px weight 500 |
-| Secondary text | `#5d6164` (resend line 12 px, loading text 14 px) |
-| Links | `#1e75ba`, weight 500, 12 px |
-| Error | `#f44336` (messages), `#cc5229` (field error text 12 px) |
-| Primary colour | Material azure palette generated from `#1157A6` |
-| Buttons | Full width, radius 4 px, no shadow, 24 px top margin |
-| Progress | Indeterminate bar pinned to the card top during send/resend/verify; spinner overlay (48 px) during config load |
-| Close | 25 px icon button, top-right 16 px |
-| Mobile (≤768 px) | Card 90 % width, 80 % height |
-| Footer | "Secured by MSG91" SVG, fixed bottom-left (MSG91 branding) |
+| Font | Inter (Google Fonts, loaded into the shadow root), fallback Roboto, sans-serif |
+| Title | 20 px, `#3f4346`; step 2 identifier 18 px |
+| Helper / labels | 14 px `#3f4346`; secondary `#5d6164`; placeholder `#8f9396` |
+| Primary | `#1e5ead`, hover `#18509a`; disabled button `#c1c5c8` |
+| Links | `#1e75ba`, 12 px (resend line) |
+| Error | `#f44336` (field errors 12 px, card errors 14 px) |
+| Inputs | Full width, radius 4 px, `#1e5ead` border on focus; code input 18 px text |
+| Buttons | Full width, radius 4 px, 14 px text, no shadow |
+| Progress | Thin bar pinned to the card top during requests (`#1e75ba` on a light track); spinner overlay with text for config load / Truecaller |
+| Close | 25 px icon button, top-right |
+| Mobile (≤768 px) | Card 90 % width, 80 % height, padding 40 px 20 px; footer centred |
+| Footer | "Secured by MSG91" SVG under the card (MSG91 branding) |
 
 ## 3. Theming and branding system
 
@@ -51,7 +51,7 @@ Implement theming with **CSS custom properties** on the widget root (works acros
 
 ```css
 :host, .otpw-root {
-  --otpw-color-primary: #1157a6;
+  --otpw-color-primary: #1e5ead;
   --otpw-color-primary-contrast: #ffffff;
   --otpw-color-text: #3f4346;
   --otpw-color-text-muted: #5d6164;
@@ -75,7 +75,7 @@ Expose branding through the widget config (typed, documented):
 - `texts`: every user-facing string (titles, buttons, helper, errors, success) with defaults; supports localization.
 - `className` / `customCss`: optional extra CSS injected inside the shadow root (document that it is the user's responsibility).
 
-Make sure every config option is actually wired (the reference's `style` option is dead).
+Make sure every config option is actually wired (master's `style` option is dead, and `production-js` drops it, leaving hosts with no theming hook beyond overriding prefixed classes, which Shadow DOM blocks).
 
 ## 4. Required states
 
@@ -124,4 +124,5 @@ Do not use `type="number"` (strips leading zeros, shows spinners).
 
 - Script/embed builds: render inside a Shadow DOM (custom element) so host CSS does not leak in and widget CSS does not leak out. Load fonts by `<link>` inside the shadow root or fall back to system fonts.
 - In-app components (React/Vue/Angular inside the user's app): no Shadow DOM by default; scope styles (CSS modules, scoped styles, BEM prefix `otpw-`) and respect the host app's design system if the user asks.
-- Never inject global styles into the host page (the reference sets `html, body { overflow: hidden }` in `styles.scss`; avoid this in embeds except for an explicit scroll lock while a modal is open).
+- Never inject global styles into the host page. `production-js` gets this right (CSS lives in the shadow root, prefixed classes); master injected `html, body { overflow: hidden }` globally. Lock body scroll only while a modal is open.
+- Captcha iframes do not work inside a shadow root: render them in a light-DOM element slotted into the widget, as `production-js` does.

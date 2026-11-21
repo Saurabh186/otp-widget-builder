@@ -47,11 +47,11 @@ Explain these to the user when relevant, and enforce them in code:
 2. **Private API keys** (e.g. an SMS provider auth key) must stay on the user's server. The widget calls the user's backend; the backend calls the provider. If the user only has a private key and no backend, stop and explain; offer a minimal proxy only if they ask for one.
 3. **Verification is server-side.** The browser never compares codes and never decides "verified" on its own. A client-side "success" is only a signal; the host's backend must validate the returned token/session before granting access.
 4. **Do not store OTPs** in `localStorage`, `sessionStorage`, cookies, URLs or logs. Do not log identifiers or tokens in production builds.
-5. **Transport**: HTTPS only; no `http://` third-party calls (the reference's IP lookup is an anti-example).
+5. **Transport**: HTTPS only; no `http://` third-party calls (master's IP lookup used plain HTTP; `production-js` fixed it).
 6. **Rate limiting and lockouts** are server responsibilities; the client mirrors them in the UI.
 7. `.env.example` lists variable **names** with placeholder values. Real `.env` files are git-ignored. Never copy credentials from the reference repo (it has sample ones committed).
 8. Embeds: if `postMessage` is used, validate `event.origin` and send to a specific target origin, not `'*'`.
-9. Phone/email are personal data: send them only to the configured API; no analytics or third-party lookups without the user's approval.
+9. Phone/email are personal data: send them only to the configured API. No analytics, tracking scripts or third-party lookups without the user's explicit approval (the reference's `production-js` sends the verified phone/email to a TraceIQ script; do not replicate that by default).
 
 MSG91 note: in the reference model `tokenAuth` is a widget-scoped token issued for client-side use and is sent from the browser. Treat any other provider's keys as private unless the user's provider documents them as public.
 
@@ -76,27 +76,33 @@ type ApiResult<T> =
 ```
 
 - Error codes: map known backend codes to stable widget codes (`INVALID_OTP`, `OTP_EXPIRED`, `TOO_MANY_ATTEMPTS`, `RESEND_TOO_SOON`, `NETWORK_ERROR`, `TIMEOUT`, `UNKNOWN`). Only map codes the user confirmed; everything else becomes `UNKNOWN` with the server message.
-- Response adapters extract the request id, token and expiry from the confirmed fields only. The reference's `extractWidgetProcessPayload` (accepts `data.widgetId` or `widget_id`) and `errorResolver` (any error shape → `string[]`) are good models.
+- Response adapters extract the request id, token and expiry from the confirmed fields only. The reference's `errorResolver` (any error shape → `string[]`) and its `response.data || response` unwrapping are good models; it also shows why adapters must treat HTTP 200 + `type: 'error'` as a failure.
 - No global mutable headers object (a defect in the reference). Build headers per request.
 
 ## 5. Reference: MSG91 widget API as used by the reference client
 
-Use this **only** when the user is integrating MSG91's OTP widget backend. It is derived from client code, not from an official specification (none exists in the repo). Confirm against MSG91's current documentation before relying on it.
+Use this **only** when the user is integrating MSG91's OTP widget backend. It is derived from the reference client code (`production-js` branch, `core-js/src/config/config.js` and `services/OTPService.js`), not from an official specification (none exists in the repo). Confirm against MSG91's current documentation before relying on it.
 
-Base: `{apiUrl}{msgMidProxy}` (historically `https://api.msg91.com/api/v5` for production). All calls send `Accept` and `Content-Type: application/json`, `withCredentials: false`.
+Base: `OTP_PROVIDER_API_URL` + `OTP_PROVIDER_MSG_MID_PROXY` (default proxy `/api/v5`; the code defaults to `https://test.msg91.com/api/v5` when unset). Every call sends `Accept` and `Content-Type: application/json` plus a `tokenAuth` header, with `credentials: 'omit'`.
 
 | Purpose | Method + path | Request | Response fields used |
 | --- | --- | --- | --- |
-| Widget config | `GET widget/getWidgetProcess?widgetId=` | header `tokenAuth` | `{status|type, data:{...IWidgetResponse}}` or flat; `widgetId`/`widget_id` |
-| Send OTP | `POST widget/sendOtp` | `{tokenAuth, widgetId, identifier, token?, requestVariables?}` | `type`, `message` (= reqId), `invisibleVerified`, `access-token` |
-| Resend | `POST widget/retryOtp` | `{tokenAuth, widgetId, reqId, retryChannel, requestVariables?}` | `type`, `message` |
-| Verify | `POST widget/verifyOtp` | `{tokenAuth, widgetId, otp, reqId, cookie_id?}` | `type`, `message` (token on success), `code` (703/704 on error) |
-| One-tap status | `POST widget/isOneTapAuthenticated` | `{requestId, tokenAuth}` + header | `type`, `message`, `verified` |
-| Truecaller session | `GET widget/getTruecallerSession?widgetId=&identifier=&isMobileSdk=1` | header `tokenAuth` | `type`, `message`, `redirection_url`, `deeplink` (may be nested in `data`) |
-| Truecaller status | `GET widget/truecallerStatus/{requestId}` | header `tokenAuth` | `status` (`pending`, `processing`, `verified`, `failed`, ...), token |
-| Verified session | `POST widget/checkVerifiedSession` | `{widgetId, cookie_id, mobile, email}` | `type`, `verified`, `message` / `access-token` |
+| Widget config | `GET widget/getWidgetProcess?widgetId=` | header `tokenAuth` | `type !== 'error'`; config in `data` or top level |
+| Send OTP | `POST widget/sendOtp` | `{tokenAuth, widgetId, identifier, token?, requestVariables?}` | `type === 'success'`, `message` (= request id), `invisibleVerified`, `access-token` |
+| Resend | `POST widget/retryOtp` | `{tokenAuth, widgetId, reqId, retryChannel, requestVariables?}` | `type`, `message`, `code` (704) |
+| Verify | `POST widget/verifyOtp` | `{tokenAuth, widgetId, otp, reqId}` | `type === 'success'` (or message "OTP verified successfully"), `message` (token), `code` (704) |
+| One-tap status | `POST widget/isOneTapAuthenticated` | `{requestId, tokenAuth}` | `type`, `message`, `verified` |
+| Truecaller session | `GET widget/getTruecallerSession?widgetId=&isMobileSdk=1&identifier=` | header | `type`, `message`, `redirection_url`, `deeplink` (may be nested in `data`) |
+| Truecaller status | `GET widget/truecallerStatus/{requestId}` | header | `status` (`pending`, `processing`, `verified`, `failed`, ...), token |
+| Verified session | `POST widget/checkVerifiedSession` | `{widgetId, cookie_id, mobile, email}` | Used on `master` only |
 
-`IWidgetResponse` fields the client reads: `otpLength`, `processType.value`, `verificationType`, `widgetType.value`, `retryCount`, `retryTime`, `captchaValidations`, `widgetMeta.captcha_type`, `widgetMeta.captcha_site_key`, `processes[].channel{value,name}`, `processes[].processVia.value`, `iFrame`, `oneTapVerification`, `truecaller`, `defaultCountry.iso2`.
+Behaviours to know:
+
+- **Errors arrive two ways**: as HTTP errors (the client throws `{status, message, data}`), or as HTTP 200 with `type: 'error'` in the body. Adapters must check both.
+- **Backup host**: on a network error or HTTP 5xx the client retries once against `https://msg91backup.phone91.com/api/v5` and keeps using it for the rest of the session. Reuse this only if the user's backend offers a documented fallback.
+- Error codes the UI reacts to: `703` invalid OTP (master), `704` verification limit reached (both branches).
+
+`IWidgetResponse` fields the client reads: `otpLength`, `processType.value`, `verificationType`, `widgetType.value`, `retryCount`, `retryTime`, `captchaValidations`, `widgetMeta.captcha_type`, `widgetMeta.captcha_site_key`, `processes[].channel{value,name}`, `processes[].processVia.value`, `iFrame`, `oneTapVerification`, `truecaller`, `defaultCountry.iso2`, `companyId`.
 
 Server-side token validation: MSG91 documents a server-side access-token verification API for the integrator's backend. It is not in this repo; get the exact endpoint and auth from MSG91's docs or the user. Never call it from the browser with a private auth key.
 

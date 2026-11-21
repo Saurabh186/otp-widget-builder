@@ -43,7 +43,7 @@ Use this as the checklist of configurable options. Implement only options in sco
 
 - Throw at init for missing required options with a message naming the option.
 - Reject unknown `channels` values and `otpLength` outside the allowed set.
-- Warn (dev builds only) for unknown keys, to catch typos like the reference's `exposedMethods`.
+- Warn (dev builds only) for unknown keys, to catch typos like master's `exposedMethods`, which silently disabled a callback.
 
 ## docs/CONFIGURATION.md skeleton
 

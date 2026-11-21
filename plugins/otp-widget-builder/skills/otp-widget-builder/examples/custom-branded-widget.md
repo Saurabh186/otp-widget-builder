@@ -2,35 +2,38 @@
 
 Two short scenarios showing the "customize existing" workflow: inspect first, change the minimum, keep public APIs stable, re-verify.
 
-## Scenario A: Rebrand a fork of the reference repo (Angular)
+## Scenario A: Rebrand a fork of the reference (`production-js`, vanilla JS)
 
-User: "We forked OTP-widget-web. Make it match our brand: green primary `#0E7C66`, our logo in the header, 'Verify your phone' title, remove the MSG91 footer."
+User: "We forked OTP-widget-web (`production-js` branch). Make it match our brand: green primary `#0E7C66`, our logo in the header, 'Verify your phone' title, remove the MSG91 footer."
 
 ### Inspection findings Claude reported before planning
 
-- Angular 19, NgModule, styles in `src/otp-global.scss`, `src/app/otp/send-otp/send-otp.component.scss`, Material theme in `src/app_theme-colors.scss` (azure palette from `#1157A6`).
-- Titles are hard-coded in `send-otp-center.component.html` (`Mobile Verification` / `Email Verification`, `Enter OTP Sent to`).
-- Footer SVG "Secured by MSG91" is inline in `send-otp.component.html`.
-- `config.style` is accepted but never applied, so it cannot be used for theming without a fix.
+- Vanilla JS SDK in `core-js/`, Vite IIFE build to `dist/otp-widget/otp-provider.js`; styles in `core-js/src/styles/main.css` (classes prefixed `msg91-`) injected into a Shadow DOM.
+- Primary colour `#1e5ead` (hover `#18509a`) is repeated across `main.css`; there are no CSS variables.
+- Titles and labels are template strings in `core-js/src/core/UIManager.js` (`Mobile Verification`, `Email Verification`, `Enter OTP Sent to`, `Send` / `Generate`).
+- The footer comes from `core-js/src/core/secured-by-logo.js`, rendered by `UIManager.footerHtml()`.
+- Hosts cannot restyle it from outside: Shadow DOM blocks page CSS, and there is no `style`/`theme` option.
 - OTP length, channels, retry time/count come from the MSG91 dashboard (`getWidgetProcess`), not code.
-- No tests or lint config exist; baseline `npm run build:prod` result recorded before changes.
+- `main.js` auto-initializes a demo with committed sample credentials whenever `#otp-widget-container` exists. Flagged to the user as a production risk to fix in the same change.
+- No tests or lint. Claude did not run the branch's build: installing a downloaded repo's npm packages needs the user's go-ahead in this environment, so the baseline build was left for the user to run.
 
 ### Plan presented (approved by the user)
 
 | Change | File(s) | Note |
 | --- | --- | --- |
-| Primary colour | `app_theme-colors.scss` (regenerate palette with `ng generate @angular/material:theme-color` from `#0E7C66`) | Keeps Material buttons/progress consistent |
-| Text/link colours | `otp-global.scss` (`.resend-otp a`, titles) | Contrast checked ≥4.5:1 |
-| Logo + title | `send-otp-center.component.html` header; new optional `config.logoUrl`, `config.title` read in the component | Defaults keep current behaviour for other integrators |
-| Footer removal | `send-otp.component.html` | User owns the fork and asked for it |
-| Optional: make `config.style` work | bind `[ngStyle]="css$ \| async"` on `.otp-verification-dialog` | Asked user first: it changes behaviour for anyone already passing `style` |
-| Docs | README section "Branding options" | Only the new options |
+| Theme tokens | `main.css`: introduce `--msg91-primary`, `--msg91-primary-hover` on `.msg91-otp-overlay`, replace hard-coded `#1e5ead` / `#18509a` | One place to change; contrast of `#0E7C66` on white checked ≥4.5:1 |
+| Brand config | `OTPWidget.js` / `UIManager.js`: optional `config.theme` (token map applied to the overlay element), `config.logoUrl`, `config.title` | Defaults keep the current look for other integrators |
+| Logo + title | `UIManager.showInitialScreen()` header; logo rendered with `img.src`/`alt` set through the DOM, title via `textContent` | Avoids the branch's `innerHTML` pattern for dynamic text |
+| Footer removal | `UIManager.renderShell()` (omit `footerHtml()`) | User owns the fork and asked for it |
+| Demo auto-init | `main.js`: run `initDemo` only in dev (`process.env.NODE_ENV !== 'production'`), remove committed credentials | Asked first: it changes production behaviour |
+| `requestVariables` | add `theme`, `logoUrl`, `title` to the skip list in `getRequestVariables()` | Otherwise the new options would be sent to MSG91 |
+| Docs | `core-js/INTEGRATION.md` branding section | Only the new options |
 
-Not changed: store, effects, API service, Truecaller, captcha.
+Not changed: `OTPService`, captcha, Truecaller, flow logic.
 
 ### Verification reported
 
-`npm run build:prod` ✅ (same warnings as baseline), manual check in `ng serve` at 375 px and 1280 px with screenshots, unit tests: none exist; Claude added a component test only for the new `logoUrl`/`title` inputs after the user agreed to add a test runner config.
+Claude added Vitest + happy-dom (user approved) with tests for theme application, logo/title rendering and the demo guard. Results reported as run. `npm run build:prod` and a manual check at 375 px and 1280 px were listed for the user to run, with the exact commands, because the build was not executed in this session.
 
 ## Scenario B: Existing React widget (generated earlier) → new brand + 4-digit OTP
 

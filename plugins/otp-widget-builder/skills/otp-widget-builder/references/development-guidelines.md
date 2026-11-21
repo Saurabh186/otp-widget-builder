@@ -40,11 +40,11 @@ Decide from the integration environment, then confirm with the user:
 | Host app is Angular | Angular standalone component + service, signals for state | Matches host DI/forms |
 | Host app is Vue / Nuxt | Vue 3 SFC + composable `useOtp` | Native integration |
 | Needed in several frameworks | Framework-agnostic TS core (API client + state machine) + thin framework adapters, or one Web Component | One flow implementation |
-| Customizing the reference repo itself | Keep Angular 19 + its structure | Minimal-change rule |
+| Customizing the reference itself (`production-js` branch, `core-js/`) | Keep vanilla JS + Vite + its class structure | Minimal-change rule |
 
 Notes:
 
-- Do not force Angular because the reference uses it. The reference's Angular + Material + NgRx bundle is heavy for an embed.
+- Do not force the reference's stack on every project. Its `production-js` branch is plain JavaScript in one IIFE, which is a good fit for script embeds; the older Angular + Material + NgRx build on `master` is heavy for an embed. For new code prefer TypeScript even when the reference is plain JS.
 - Phone input: use `libphonenumber-js` (smaller than `google-libphonenumber`) for validation/formatting; add a country picker only if required. `intl-tel-input` is acceptable when the user wants the reference's look.
 - Captcha: integrate only if the backend requires a token; load the provider script on demand.
 
