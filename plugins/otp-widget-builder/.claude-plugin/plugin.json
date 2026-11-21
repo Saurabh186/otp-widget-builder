@@ -8,5 +8,13 @@
   },
   "homepage": "https://github.com/Saurabh186/otp-widget-builder",
   "repository": "https://github.com/Saurabh186/otp-widget-builder",
-  "keywords": ["otp", "verification", "widget", "sms", "authentication", "skill"]
+  "license": "MIT",
+  "keywords": [
+    "otp",
+    "verification",
+    "widget",
+    "sms",
+    "authentication",
+    "skill"
+  ]
 }

@@ -69,3 +69,7 @@ plugins/otp-widget-builder/
 
 - The skill refuses to put private API keys in browser code and treats a successful verification in the widget as a signal only. Your backend must validate the returned token.
 - Never paste production secrets into a chat. Use test credentials or a staging environment for real-API testing.
+
+## License
+
+[MIT](LICENSE). You're free to use, modify and share this skill.
