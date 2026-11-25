@@ -83,7 +83,7 @@ type ApiResult<T> =
 
 Use this **only** when the user is integrating MSG91's OTP widget backend. It is derived from the reference client code (`production-js` branch, `core-js/src/config/config.js` and `services/OTPService.js`), not from an official specification (none exists in the repo). Confirm against MSG91's current documentation before relying on it.
 
-Base: `OTP_PROVIDER_API_URL` + `OTP_PROVIDER_MSG_MID_PROXY` (default proxy `/api/v5`; the code defaults to `https://test.msg91.com/api/v5` when unset). Every call sends `Accept` and `Content-Type: application/json` plus a `tokenAuth` header, with `credentials: 'omit'`.
+Base: `OTP_PROVIDER_API_URL` + `OTP_PROVIDER_MSG_MID_PROXY` (default proxy `/api/v5`; the code defaults to `https://test.msg91.com/api/v5` when unset). Production and test values, including captcha site keys, are in `msg91-environments.md`; use them instead of asking the user. Every call sends `Accept` and `Content-Type: application/json` plus a `tokenAuth` header, with `credentials: 'omit'`.
 
 | Purpose | Method + path | Request | Response fields used |
 | --- | --- | --- | --- |

@@ -4,6 +4,7 @@ A Claude skill that walks you through building your own **OTP verification widge
 
 - **Any stack:** vanilla TypeScript Web Component, React, Angular, Vue, and others. Claude recommends one based on where the widget will run.
 - **Your APIs:** it uses your own send / verify / resend endpoints. It never invents API details and never puts secrets in frontend code.
+- **No `.env` needed for MSG91:** the production and test API hosts and captcha site keys are built in (`references/msg91-environments.md`). Claude asks only for your widget id and tokenAuth.
 - **Your design:** the reference layout, your screenshots or Figma, or a generated design, all themed with your brand colours, logo and text.
 - **Delivery formats:** embeddable `<script>`, npm package, standalone page, or a component inside your existing app. It builds only the ones you need.
 - **Tested and documented:** unit, integration and E2E tests, plus README, API, configuration, integration, customization, architecture, testing and deployment docs and a working demo page. Test results are labelled as mocked or real API.

@@ -133,7 +133,7 @@ API failures go to both the per-call callback and `config.failure`. Missing inpu
 
 ## 7. Configuration, environment and build
 
-Env variables (read from `process.env`, then `../.env`, then `core-js/.env`; later wins): `OTP_PROVIDER_API_URL`, `OTP_PROVIDER_MSG_MID_PROXY` (default `/api/v5`), `OTP_PROVIDER_HCAPTCHA_ENTERPRISE_SITE_KEY` (or `VITE_HCAPTCHA_SITE_KEY`), `OTP_PROVIDER_RECAPTCHA_ENTERPRISE_SCRIPT_URL` (or `VITE_RECAPTCHA_ENTERPRISE_URL`, default Google's `enterprise.js?render=:siteKey`), `OTP_PROVIDER_RECAPTCHA_ENTERPRISE_SITE_KEY`, `OTP_PROVIDER_RECAPTCHA_V3_SITE_KEY`, `OTP_PROVIDER_BASE_URL` (picked up but unused by `config.js`).
+Env variables (read from `process.env`, then `../.env`, then `core-js/.env`; later wins): `OTP_PROVIDER_API_URL`, `OTP_PROVIDER_MSG_MID_PROXY` (default `/api/v5`), `OTP_PROVIDER_HCAPTCHA_ENTERPRISE_SITE_KEY` (or `VITE_HCAPTCHA_SITE_KEY`), `OTP_PROVIDER_RECAPTCHA_ENTERPRISE_SCRIPT_URL` (or `VITE_RECAPTCHA_ENTERPRISE_URL`, default Google's `enterprise.js?render=:siteKey`), `OTP_PROVIDER_RECAPTCHA_ENTERPRISE_SITE_KEY`, `OTP_PROVIDER_RECAPTCHA_V3_SITE_KEY`, `OTP_PROVIDER_BASE_URL` (picked up but unused by `config.js`). Production values: `msg91-environments.md`.
 
 `config.apiUrl` = `OTP_PROVIDER_API_URL` + proxy, defaulting to `https://test.msg91.com/api/v5` when unset. `fallbackApiUrl` = `https://msg91backup.phone91.com/api/v5`.
 

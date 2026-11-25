@@ -14,6 +14,7 @@ Interactively create a new, independent OTP verification widget, or customize an
 | `references/repository-architecture.md` | Always, before planning (stack, contract, known defects not to copy) |
 | `references/otp-flow.md` | Always, before planning (lifecycle, timers, limits, state machine) |
 | `references/api-integration.md` | Collecting API details; writing the API layer; any security question |
+| `references/msg91-environments.md` | Whenever the backend is MSG91: built-in API hosts and captcha site keys, so never ask the user for a `.env` |
 | `references/design-guidelines.md` | Discussing design; building UI, theming, accessibility |
 | `references/development-guidelines.md` | Choosing technology/output formats; before writing code; customizing existing code |
 | `references/testing-guidelines.md` | Writing tests; verifying; writing the test report |
@@ -26,7 +27,7 @@ Interactively create a new, independent OTP verification widget, or customize an
 
 ## Non-negotiable rules
 
-1. **No invented contracts.** Never make up endpoints, methods, headers, payloads, response fields, error codes or auth formats. Ask. Unconfirmed items get `TODO(confirm-with-user)` and appear in the final report.
+1. **No invented contracts.** Never make up endpoints, methods, headers, payloads, response fields, error codes or auth formats. Ask. Unconfirmed items get `TODO(confirm-with-user)` and appear in the final report. Exception: the MSG91 values in `references/msg91-environments.md` are confirmed; use them without asking.
 2. **No secrets in frontend code**, no client-side-only verification, no OTPs in storage or logs. The host's backend validates the verification result. Details: `references/api-integration.md` §3.
 3. **No false claims.** Only report checks you actually ran; label tests Mocked vs Real API.
 4. **Ask before major decisions**: framework, output formats, state library, adding a backend, replacing existing components, breaking public APIs.
@@ -54,7 +55,7 @@ Question bank, in priority order:
 3. **Output formats**: standalone app, embeddable script, npm package, in-app component (only what is needed; see `references/development-guidelines.md` §3).
 4. **Technology**: recommend from the environment using `references/development-guidelines.md` §2 and ask for confirmation rather than asking open-ended.
 5. **Identifiers and channels**: phone, email or both; default country; SMS / WhatsApp / email / voice; can the user switch channel on resend?
-6. **APIs**: run the intake checklist in `references/api-integration.md` §2 (base URLs, send/verify/resend, methods, headers, auth, request/response examples, error formats, channels, limits, CORS, captcha). Ask for real examples.
+6. **APIs**: first ask whether the backend is MSG91's OTP widget. If it is, do not ask for base URLs, captcha keys or a `.env`: use `references/msg91-environments.md`, ask only for the widget id and tokenAuth, and fetch the widget's settings to find its environment (§4 there); that response also answers OTP length, channels, retry time/count and captcha type. Otherwise run the intake checklist in `references/api-integration.md` §2 (base URLs, send/verify/resend, methods, headers, auth, request/response examples, error formats, channels, limits, CORS, captcha). Ask for real examples.
 7. **OTP behaviour**: length, resend cooldown, max resends, expiry display, auto-submit, attempt limits, what happens on lock (`references/otp-flow.md` §C).
 8. **Design**: reference design, user-provided (screenshots/Figma/spec), or generated; brand colours, logo, company name, fonts, modal vs inline (`references/design-guidelines.md` §1).
 9. **Texts**: button labels, titles, success/error copy, languages.
@@ -96,7 +97,7 @@ Follow `references/testing-guidelines.md`:
 
 ### Phase 6: Document
 
-Produce the documentation set in `templates/project-structure.md` §5 (README, `.env.example`, API, configuration, integration for each built format, customization, architecture, testing with actual results, deployment, usage examples, demo). Document only behaviour that exists.
+Produce the documentation set in `templates/project-structure.md` §5 (README, `.env.example` (for MSG91, pre-filled with the production defaults as optional overrides), API, configuration, integration for each built format, customization, architecture, testing with actual results, deployment, usage examples, demo). Document only behaviour that exists.
 
 ### Phase 7: Final check and handoff
 
